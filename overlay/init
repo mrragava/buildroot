@@ -54,15 +54,15 @@ quit_job()
 
 export os_drive_letter=sda
 # set up the first partition for config file and log.
-mknod /dev/$os_drive_letter b 8 0
+# mknod /dev/$os_drive_letter b 8 0
 echo "RaGaVa >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>: Before FDISK " > /dev/console
 partitions_num=`fdisk -l /dev/$os_drive_letter | sed '1,/Number  Start (sector)    End (sector)  Size Name/d' | wc -l`
 
-if [ $partitions_num -lt 3 ]
-    then quit_job "The disk /dev/$os_drive_letter is not valid, or it does not have at least three partitions." >> $status_file
-fi
+#if [ $partitions_num -lt 3 ]
+#    then quit_job "The disk /dev/$os_drive_letter is not valid, or it does not have at least three partitions." >> $status_file
+#fi
 # Create the boot partition device. Please note that according to the layout of Azure Linux Image layout, the partition number is hardcoded to 2.
-mknod /dev/${os_drive_letter}2 b 8 2
+# mknod /dev/${os_drive_letter}2 b 8 2
 
 # Define the boot partition mount point here ealier, since the boot partition should be mounted to get the image_config.json.
 export config_destination=/mnt/${os_drive_letter}2
@@ -71,18 +71,19 @@ export writable_destination=/mnt/sda4
 export overlay_destination=/mnt/sda
 mkdir $config_destination -p
 mount /dev/sda2 $config_destination
+#if [ $? -ne 0 ]; then
+#    quit_job "Mount partition 1 failed." >> $status_file
+#else
+#    mv $status_file $config_destination/
+#    status_file=$config_destination/status
+#fi
+
 echo "RaGaVa >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> : After Mount /dev/sd2" > /dev/console
-if [ $? -ne 0 ]; then
-    quit_job "Mount partition 1 failed." >> $status_file
-else
-    mv $status_file $config_destination/
-    status_file=$config_destination/status
-fi
 
 # set up network
 # /etc/init.d/networkctl.sh >> $status_file
 
-echo "sshd started" >> $status_file
+# echo "sshd started" >> $status_file
 # mkdir -p /dev/pts
 # mount devpts /dev/pts -t devpts
 # /usr/sbin/sshd
@@ -90,7 +91,7 @@ echo "sshd started" >> $status_file
 #NTP
 # chronyd && chronyc -a makestep
 
-echo "set up hostname" >> $status_file
+# echo "set up hostname" >> $status_file
 # hostname `cat /etc/hostname`
 
 # /etc/init.d/report_azure_ready.sh >> $status_file 2>&1
@@ -99,7 +100,7 @@ echo "set up hostname" >> $status_file
 #!!! exec to run the script with PID 1
 # exec /etc/init.d/os.sh >> $status_file 2>&1
 
-echo "RaGaVa >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> " > /dev/console
+echo "RaGaVa >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> : exec /sbin/init" > /dev/console
 
 exec /sbin/init "$@"
 
