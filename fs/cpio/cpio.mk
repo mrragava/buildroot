@@ -21,6 +21,15 @@ define ROOTFS_CPIO_ADD_INIT
 	if [ ! -e $(TARGET_DIR)/init ]; then \
 		$(INSTALL) -m 0755 fs/cpio/init $(TARGET_DIR)/init; \
 	fi
+        if [ ! -e $(TARGET_DIR)/etc/init.d/os.sh ]; then \
+       		$(INSTALL) -m 0755 fs/cpio/os.sh $(TARGET_DIR)/etc/init.d/os.sh; \
+	fi
+        if [ ! -e $(TARGET_DIR)/etc/init.d/report_azure_ready.sh ]; then \
+                $(INSTALL) -m 0755 fs/cpio/report_azure_ready.sh $(TARGET_DIR)/etc/init.d/report_azure_ready.sh; \
+	fi
+        if [ ! -e $(TARGET_DIR)/etc/init.d/networkctl.sh ]; then \
+                $(INSTALL) -m 0755 fs/cpio/networkctl.sh $(TARGET_DIR)/etc/init.d/networkctl.sh; \
+	fi
 	mkdir -p $(TARGET_DIR)/dev
 	mknod -m 0622 $(TARGET_DIR)/dev/console c 5 1
 endef
