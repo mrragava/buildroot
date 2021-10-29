@@ -1,6 +1,55 @@
 #!/bin/sh
 # devtmpfs does not get automounted for initramfs
 /bin/mount -t devtmpfs devtmpfs /dev
-# mknod /dev/sev c 10 127
 
 exec /sbin/init "$@"
+
+export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+mkdir /dev/pts
+mount -t devpts -o noexec,nosuid,gid=5,mode=0620 devpts /dev/pts || true
+mount -t tmpfs -o "noexec,nosuid,size=10%,mode=0755" tmpfs /run
+mkdir -m 0755 /run/initramfs
+
+[ -d /dev ] || mkdir -m 0755 /dev
+[ -d /root ] || mkdir -m 0700 /root
+[ -d /sys ] || mkdir /sys
+[ -d /proc ] || mkdir /proc
+[ -d /tmp ] || mkdir /tmp
+mkdir -p /var/lock
+mount -t sysfs -o nodev,noexec,nosuid sysfs /sys
+mount -t proc -o nodev,noexec,nosuid proc /proc
+
+# mknod /dev/sev c 10 127
+
+# Execute init.d scripts directly in order.
+for i in /etc/init.d/S??* ;do
+     # Ignore dangling symlinks (if any).
+     [ ! -f "$i" ] && continue
+
+     case "$i" in
+        *.sh)
+            # Source shell script for speed.
+            (
+                trap - INT QUIT TSTP
+                set start
+                . $i
+            )
+            ;;
+        *)
+            # No sh extension, so fork subprocess.
+            $i start
+            ;;
+    esac
+done
+
+mount -n -o move /run /mnt/sda/run
+mount -n -o move /proc /mnt/sda/proc
+mount -n -o move /sys /mnt/sda/sys
+
+# chroot /mnt/sda /sbin/init
+# exec switch_root /mnt/sda /bin/bash
+# exec switch_root /mnt/sda /sbin/init
+
+# exec run-init /mnt/sda /sbin/init "$@" ${recovery:+--startup-event=recovery} </mnt/sda/dev/console >/mnt/sda/dev/console 2>&1
+# exec run-init /mnt/sda /sbin/init "$@"
+exec run-init /mnt/sda /bin/bash

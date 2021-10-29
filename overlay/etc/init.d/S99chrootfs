@@ -2,7 +2,16 @@
 #
 # Mount and Chroot to Guest OS
 #
+
+quit_job() {
+    echo -e "$*"
+    /bin/sh
+}
+
 start() {
+    status_file=/root/status
+    echo "Start init.sh" > $status_file
+
     export os_drive_letter=sda
     export config_destination=/mnt/${os_drive_letter}2
     export readonly_detination=/mnt/sda3
@@ -34,9 +43,12 @@ start() {
     os_r_partition=`jq -r .rdisk.partition $config_file`
     os_w_partition=`jq -r .wdisk.partition $config_file`
 
+    echo ${os_r_partition}
+    echo ${os_w_partition}
+
     # Create the partition devices and mount points.
-    mknod /dev/${os_drive_letter}${os_r_partition} b 8 ${os_r_partition}
-    mknod /dev/${os_drive_letter}${os_w_partition} b 8 ${os_w_partition}
+    # mknod /dev/${os_drive_letter}${os_r_partition} b 8 ${os_r_partition}
+    # mknod /dev/${os_drive_letter}${os_w_partition} b 8 ${os_w_partition}
 
     readonly_destination=/mnt/${os_drive_letter}${os_r_partition}
     writable_destination=/mnt/${os_drive_letter}${os_w_partition}
@@ -46,14 +58,21 @@ start() {
     # Verification of the ro partition
     config_hash=`sha256sum $config_file | cut -d" " -f1`
     recorded_hash=`/attestation/get_family_id_image_id.sh`
-    if [ "$config_hash" != "$recorded_hash" ]; then
-        quit_job "Config file does not match the record."
-    else
-        echo "Config file matches the record."
-    fi
+
+    echo ${config_hash}
+    echo ${recorded_hash}
+
+    #if [ "$config_hash" != "$recorded_hash" ]; then
+    #    quit_job "Config file does not match the record."
+    #else
+    #    echo "Config file matches the record."
+    #fi
 
     os_r_hash_tree=$config_destination/$(jq -r .rdisk.hash_tree $config_file)
     os_r_root_hash=`jq -r .rdisk.root_hash $config_file`
+
+    echo ${os_r_hash_tree}
+    echo ${or_r_root_hash}
 
     # Set the options to empty string first.
     os_r_option=""
@@ -86,7 +105,6 @@ start() {
         echo "mount writable disk /dev/${os_drive_letter}$os_w_partition on $writable_destination succeded."
         mkdir $writable_destination/upperdir $writable_destination/workdir -p
         os_w_option="-o upperdir=$writable_destination/upperdir,workdir=$writable_destination/workdir"
-
     fi
 
     mount -t overlay overlay $os_r_option $os_w_option $overlay_destination
@@ -98,9 +116,16 @@ start() {
     # If the rootfs is not empty, we can switch to the rootfs
     # chroot /mnt/${os_drive_letter} /bin/bash
     # chroot to /mnt/${os_drive_letter}. In the new rootfs, start an infinite job bash.
-    if [ "`ls -A $overlay_destination`" != "" ]; then
-        chroot /mnt/${os_drive_letter} /bin/bash
-    fi
+#    if [ "`ls -A $overlay_destination`" != "" ]; then
+#	mount -n -o move /run /mnt/${os_drive_letter}/run
+#	mount -n -o move /proc /mnt/${os_drive_letter}/proc
+#	mount -n -o move /sys /mnt/${os_drive_letter}/sys
+#	mount -n -o move /dev /mnt/${os_drive_letter}/dev
+#       chroot /mnt/${os_drive_letter} /sbin/init
+#	exec switch_root /mnt/${os_drive_letter} /bin/bash < /mnt/${os_drive_letter}/dev/console > /mnt/${os_drive_letter}/dev/console 2>&1
+#	exec switch_root -c /dev/console /mnt/${os_drive_letter} /mnt/${os_drive_letter}/sbin/init "$@"
+#	exec run-init /mnt/${os_drive_letter} /sbin/init "$@" ${recovery:+--startup-event=recovery} </mnt/${os_drive_letter}/dev/console >/mnt/${os_drive_letter}/dev/console 2>&1
+#    fi
 }
 
 stop() {
