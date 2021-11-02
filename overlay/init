@@ -19,7 +19,9 @@ mkdir -p /var/lock
 mount -t sysfs -o nodev,noexec,nosuid sysfs /sys
 mount -t proc -o nodev,noexec,nosuid proc /proc
 
-# mknod /dev/sev c 10 127
+bin/hostname -F /etc/hostname
+
+mknod /dev/sev c 10 127
 
 # Execute init.d scripts directly in order.
 for i in /etc/init.d/S??* ;do
@@ -46,10 +48,12 @@ mount -n -o move /run /mnt/sda/run
 mount -n -o move /proc /mnt/sda/proc
 mount -n -o move /sys /mnt/sda/sys
 
-# chroot /mnt/sda /sbin/init
+exec chroot /mnt/sda /sbin/init "$@"
+# exec chroot /mnt/sda /bin/bash
+
 # exec switch_root /mnt/sda /bin/bash
 # exec switch_root /mnt/sda /sbin/init
 
 # exec run-init /mnt/sda /sbin/init "$@" ${recovery:+--startup-event=recovery} </mnt/sda/dev/console >/mnt/sda/dev/console 2>&1
 # exec run-init /mnt/sda /sbin/init "$@"
-exec run-init /mnt/sda /bin/bash
+# exec run-init /mnt/sda /bin/bash
