@@ -1,0 +1,15 @@
+diff --git a/kernel/printk/printk_safe.c b/kernel/printk/printk_safe.c
+index de75c8d80360..70db77277dfd 100644
+--- a/kernel/printk/printk_safe.c
++++ b/kernel/printk/printk_safe.c
+@@ -416,8 +416,8 @@ __printf(1, 0) int vprintk_func(const char *fmt, va_list args)
+ 		return vkdb_printf(KDB_MSGSRC_PRINTK, fmt, args);
+ #endif
+ 
+-	if (sev_snp_active())
+-		return hv_sev_printf(fmt, args);
++	// if (sev_snp_active())
++	//	return hv_sev_printf(fmt, args);
+ 
+ 	/*
+ 	 * Try to use the main logbuf even in NMI. But avoid calling console
