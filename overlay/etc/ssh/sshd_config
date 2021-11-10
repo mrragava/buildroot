@@ -115,7 +115,7 @@ Subsystem	sftp	/usr/libexec/sftp-server
 #	PermitTTY no
 #	ForceCommand cvs server
 
-# Port 22
+# Port 10022
 # PermitRootLogin yes
 # PermitEmptyPasswords yes
 # PasswordAuthentication yes
