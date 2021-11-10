@@ -1,131 +1,116 @@
 #!/bin/sh
 #
-# Mount and Chroot to Guest OS
+# dm-verity opetations on target os disk
 #
 
 quit_job() {
+    echo -e "$*" >> $status_file
     echo -e "$*"
     /bin/sh
 }
 
 start() {
-    status_file=/root/status
-    echo "Start init.sh" > $status_file
+echo "Start : "$(basename "$0") >> $status_file
+export os_drive_letter=sda
+# set up the first partition for config file and log.
+[ ! -d /dev/$os_drive_letter ] || mknod /dev/$os_drive_letter b 8 0
 
-    export os_drive_letter=sda
-    export config_destination=/mnt/${os_drive_letter}2
-    export readonly_detination=/mnt/sda3
-    export writable_destination=/mnt/sda4
-    export overlay_destination=/mnt/sda
-    mkdir $config_destination -p
-    mount /dev/sda2 $config_destination
+# Define the boot partition mount point here ealier, since the boot partition should be mounted to get the image_config.json.
+export config_destination=/mnt/${os_drive_letter}2
+export readonly_detination=/mnt/sda3
+export writable_destination=/mnt/sda4
+export overlay_destination=/mnt/sda
 
-    #if [ $? -ne 0 ]; then
-    #    quit_job "Mount partition 1 failed." >> $status_file
-    #else
-    #    mv $status_file $config_destination/
-    #    status_file=$config_destination/status
-    #fi
+mkdir $config_destination -p
+mount /dev/sda2 $config_destination
+if [ $? -ne 0 ]; then
+    quit_job "Mount OS disk metadata partition failed." >> $status_file
+else
+    status_file_name=`basename $status_file`
+    new_status_file=${config_destination}/${status_file_name}
+    mv $status_file $new_status_file
+    ln -s $new_status_file $status_file
+    status_file=$new_status_file
+fi
 
-    # Retrive the partition info from the config file.
-    #  "rdisk": {
-    #    "partition": "3",
-    #    "hash_tree": "hash_tree",
-    #    "root_hash": "d76aabb2255c8b0d1fb6f454cf363f8845e14cc900156c36d63c4c36794dca4a"
-    #  },
-    #  "wdisk": {
-    #    "partition": "4"
-    #  }
+# Retrive the partition info from the config file.
+#  "rdisk": {
+#    "partition": "3",
+#    "hash_tree": "hash_tree",
+#    "root_hash": "d76aabb2255c8b0d1fb6f454cf363f8845e14cc900156c36d63c4c36794dca4a"
+#  },
+#  "wdisk": {
+#    "partition": "4"
+#  }
+# For readonly partition, there should be partition number, the hash tree file name, and the root hash string.
+# For writable partition, there should be partition number.
+config_file=$config_destination/image_config.json
+os_r_partition=`jq -r .rdisk.partition $config_file`
+os_w_partition=`jq -r .wdisk.partition $config_file`
 
-    # For readonly partition, there should be partition number, the hash tree file name, and the root hash string.
-    # For writable partition, there should be partition number.
-    config_file=$config_destination/image_config.json
-    os_r_partition=`jq -r .rdisk.partition $config_file`
-    os_w_partition=`jq -r .wdisk.partition $config_file`
+# Create the partition devices and mount points.
+[ ! -d /dev/${os_drive_letter}${os_r_partition} ] || mknod /dev/${os_drive_letter}${os_r_partition} b 8 ${os_r_partition}
+[ ! -d /dev/${os_drive_letter}${os_w_partition} ] || mknod /dev/${os_drive_letter}${os_w_partition} b 8 ${os_w_partition}
 
-    echo ${os_r_partition}
-    echo ${os_w_partition}
+readonly_destination=/mnt/${os_drive_letter}${os_r_partition}
+writable_destination=/mnt/${os_drive_letter}${os_w_partition}
+overlay_destination=/mnt/$os_drive_letter
+mkdir $readonly_destination $writable_destination $overlay_destination -p
 
-    # Create the partition devices and mount points.
-    # mknod /dev/${os_drive_letter}${os_r_partition} b 8 ${os_r_partition}
-    # mknod /dev/${os_drive_letter}${os_w_partition} b 8 ${os_w_partition}
+# Verification of the ro partition
+config_hash=`sha256sum $config_file | cut -d" " -f1`
+recorded_hash=`/attestation/get_family_id_image_id.sh`
+#if [ "$config_hash" != "$recorded_hash" ]; then
+#    quit_job "Config file does not match the record."
+#else
+#    echo "Config file matches the record."
+#fi
 
-    readonly_destination=/mnt/${os_drive_letter}${os_r_partition}
-    writable_destination=/mnt/${os_drive_letter}${os_w_partition}
-    overlay_destination=/mnt/$os_drive_letter
-    mkdir $readonly_destination $writable_destination $overlay_destination -p
+os_r_hash_tree=$config_destination/$(jq -r .rdisk.hash_tree $config_file)
+os_r_root_hash=`jq -r .rdisk.root_hash $config_file`
 
-    # Verification of the ro partition
-    config_hash=`sha256sum $config_file | cut -d" " -f1`
-    recorded_hash=`/attestation/get_family_id_image_id.sh`
+# Set the options to empty string first.
+os_r_option=""
+os_w_option=""
 
-    echo ${config_hash}
-    echo ${recorded_hash}
+# "veritysetup create ..." will not prompt any error even the verification fails.
+# Add extra verification step "veritysetup verify ..." to get more info.
+# In some case the verification will fail randomly.
+# So only add the verification info only if the mount fails.
+creation_result=`veritysetup create dm$os_r_partition /dev/${os_drive_letter}$os_r_partition $os_r_hash_tree $os_r_root_hash 2>&1`
+mount_result=`mount -o ro,noload /dev/mapper/dm$os_r_partition $readonly_destination`
+if [ $? -ne 0 ]; then
+    verification_result=`veritysetup verify /dev/${os_drive_letter}$os_r_partition $os_r_hash_tree $os_r_root_hash`
+    quit_job "${verification_result}\n${creation_result}\n${mount_result}\nDm-verity device mapper mounting failed."
+else
+    echo "Dm-verity device mapper mounting succeeded." >> $status_file
+    echo "Readonly disk $os_r_partition is mounted on $readonly_destination." >> $status_file
+    os_r_option="-o lowerdir=$readonly_destination"
+fi
 
-    #if [ "$config_hash" != "$recorded_hash" ]; then
-    #    quit_job "Config file does not match the record."
-    #else
-    #    echo "Config file matches the record."
-    #fi
+passwd=`cat /dev/urandom | base64 | head -c 32`
+echo $passwd | cryptsetup luksFormat /dev/${os_drive_letter}$os_w_partition
+echo $passwd | cryptsetup open /dev/${os_drive_letter}$os_w_partition dm$os_w_partition
+echo y | mkfs.ext2 /dev/mapper/dm$os_w_partition
+mount /dev/mapper/dm$os_w_partition $writable_destination
 
-    os_r_hash_tree=$config_destination/$(jq -r .rdisk.hash_tree $config_file)
-    os_r_root_hash=`jq -r .rdisk.root_hash $config_file`
+if [ $? -ne 0 ]; then
+    quit_job "mount writable disk /dev/${os_drive_letter}$os_w_partition on $writable_destination failed."
+else
+    echo "mount writable disk /dev/${os_drive_letter}$os_w_partition on $writable_destination succeded." >> $status_file
+    mkdir $writable_destination/upperdir $writable_destination/workdir -p
+    os_w_option="-o upperdir=$writable_destination/upperdir,workdir=$writable_destination/workdir"
 
-    echo ${os_r_hash_tree}
-    echo ${or_r_root_hash}
+fi
 
-    # Set the options to empty string first.
-    os_r_option=""
-    os_w_option=""
+echo "Overlay mount path: "$overlay_destination >> $status_file
+mount -t overlay overlay $os_r_option $os_w_option $overlay_destination
+if [ $? -ne 0 ]; then
+    quit_job "mount overlay failed."
+else
+    echo "mount overlay succeded." >> $status_file
+fi
 
-    # "veritysetup create ..." will not prompt any error even the verification fails.
-    # Add extra verification step "veritysetup verify ..." to get more info.
-    # In some case the verification will fail randomly.
-    # So only add the verification info only if the mount fails.
-    creation_result=`veritysetup create dm$os_r_partition /dev/${os_drive_letter}$os_r_partition $os_r_hash_tree $os_r_root_hash 2>&1`
-    mount_result=`mount -o ro,noload /dev/mapper/dm$os_r_partition $readonly_destination`
-    if [ $? -ne 0 ]; then
-        verification_result=`veritysetup verify /dev/${os_drive_letter}$os_r_partition $os_r_hash_tree $os_r_root_hash`
-        quit_job "${verification_result}\n${creation_result}\n${mount_result}\nDm-verity device mapper mounting failed."
-    else
-        echo "Dm-verity device mapper mounting succeeded."
-        echo "Readonly disk $os_r_partition is mounted on $readonly_destination."
-        os_r_option="-o lowerdir=$readonly_destination"
-    fi
-
-    passwd=`cat /dev/urandom | base64 | head -c 32`
-    echo $passwd | cryptsetup luksFormat /dev/${os_drive_letter}$os_w_partition
-    echo $passwd | cryptsetup open /dev/${os_drive_letter}$os_w_partition dm$os_w_partition
-    echo y | mkfs.ext2 /dev/mapper/dm$os_w_partition
-    mount /dev/mapper/dm$os_w_partition $writable_destination
-
-    if [ $? -ne 0 ]; then
-        quit_job "mount writable disk /dev/${os_drive_letter}$os_w_partition on $writable_destination failed."
-    else
-        echo "mount writable disk /dev/${os_drive_letter}$os_w_partition on $writable_destination succeded."
-        mkdir $writable_destination/upperdir $writable_destination/workdir -p
-        os_w_option="-o upperdir=$writable_destination/upperdir,workdir=$writable_destination/workdir"
-    fi
-
-    mount -t overlay overlay $os_r_option $os_w_option $overlay_destination
-    if [ $? -ne 0 ]; then
-        quit_job "mount overlay failed."
-    else
-        echo "mount overlay succeded."
-    fi
-    # If the rootfs is not empty, we can switch to the rootfs
-    # chroot /mnt/${os_drive_letter} /bin/bash
-    # chroot to /mnt/${os_drive_letter}. In the new rootfs, start an infinite job bash.
-#    if [ "`ls -A $overlay_destination`" != "" ]; then
-#	mount -n -o move /run /mnt/${os_drive_letter}/run
-#	mount -n -o move /proc /mnt/${os_drive_letter}/proc
-#	mount -n -o move /sys /mnt/${os_drive_letter}/sys
-#	mount -n -o move /dev /mnt/${os_drive_letter}/dev
-#       chroot /mnt/${os_drive_letter} /sbin/init
-#	exec switch_root /mnt/${os_drive_letter} /bin/bash < /mnt/${os_drive_letter}/dev/console > /mnt/${os_drive_letter}/dev/console 2>&1
-#	exec switch_root -c /dev/console /mnt/${os_drive_letter} /mnt/${os_drive_letter}/sbin/init "$@"
-#	exec run-init /mnt/${os_drive_letter} /sbin/init "$@" ${recovery:+--startup-event=recovery} </mnt/${os_drive_letter}/dev/console >/mnt/${os_drive_letter}/dev/console 2>&1
-#    fi
 }
 
 stop() {

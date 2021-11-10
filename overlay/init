@@ -1,8 +1,23 @@
 #!/bin/sh
+
+export status_file=/root/status
+echo "Start init" > $status_file
+
 # devtmpfs does not get automounted for initramfs
 /bin/mount -t devtmpfs devtmpfs /dev
 
-exec /sbin/init "$@"
+initramfsboot=0
+for i in "$@"; do
+    case $i in
+    initramfsboot)
+        initramfsboot=1
+        ;;
+    esac
+done
+
+if [[ $initramfsboot -eq 1 ]]; then
+    exec /sbin/init "$@"
+fi
 
 export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 mkdir /dev/pts
@@ -22,7 +37,7 @@ mount -t proc -o nodev,noexec,nosuid proc /proc
 bin/hostname -F /etc/hostname
 mknod /dev/sev c 10 127
 
-# Execute init.d scripts directly in order.
+# Execute init.d scripts directly in sorted order.
 for i in /etc/init.d/S??* ;do
      # Ignore dangling symlinks (if any).
      [ ! -f "$i" ] && continue
@@ -43,9 +58,11 @@ for i in /etc/init.d/S??* ;do
     esac
 done
 
-mount -n -o move /run /mnt/sda/run
-mount -n -o move /proc /mnt/sda/proc
-mount -n -o move /sys /mnt/sda/sys
-
-# exec chroot /mnt/sda /sbin/init "$@"
-exec run-init /mnt/sda /sbin/init "$@"
+overlay_destination=/mnt/sda
+if [ "`ls -A $overlay_destination`" != "" ]; then
+    mount -n -o move /run $overlay_destination/run
+    mount -n -o move /proc $overlay_destination/proc
+    mount -n -o move /sys $overlay_destination/sys
+    mount -n -o move /dev $overlay_destination/dev
+    exec run-init $overlay_destination /sbin/init "$@"
+fi
